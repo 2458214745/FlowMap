@@ -1,0 +1,1285 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>流向图绘制器</title>
+<style>
+  :root{
+    --bg:#141519;
+    --bg2:#1b1d22;
+    --panel:#202228;
+    --panel2:#262a31;
+    --border:#333740;
+    --text:#e7e9ee;
+    --muted:#9aa1ad;
+    --accent:#5b8def;
+    --accent2:#3f6fd8;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{
+    font-family:-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,sans-serif;
+    background:var(--bg);color:var(--text);font-size:13px;
+    display:flex;flex-direction:column;overflow:hidden;
+    -webkit-user-select:none;user-select:none;
+  }
+  header{
+    display:flex;align-items:center;gap:14px;
+    padding:8px 14px;background:var(--bg2);
+    border-bottom:1px solid var(--border);flex:0 0 auto;
+  }
+  header .logo{display:flex;align-items:center;gap:9px;font-weight:600;font-size:15px;}
+  header .logo .dot{
+    width:14px;height:14px;border-radius:4px;
+    background:linear-gradient(135deg,#2bd9d9,#5b8def 55%,#2b6dd9);
+    border:1px solid #444;
+  }
+  header .sub{color:var(--muted);font-size:12px;}
+  .spacer{flex:1;}
+  .btn{
+    display:inline-flex;align-items:center;gap:6px;
+    background:var(--panel2);border:1px solid var(--border);
+    color:var(--text);padding:6px 12px;border-radius:7px;
+    cursor:pointer;font-size:12.5px;transition:.12s;
+  }
+  .btn:hover{border-color:var(--accent);background:#2b303a;}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn.primary:hover{background:var(--accent2);}
+  .btn.import{background:#2fa46b;border-color:#2fa46b;color:#fff;}
+  .btn.import:hover{background:#278c5b;border-color:#278c5b;}
+  .btn.small{padding:4px 9px;font-size:12px;}
+  .btn.tool{display:flex;width:100%;justify-content:flex-start;padding:8px 10px;}
+  .btn.tool.active{background:#31405c;border-color:var(--accent);color:#dce9ff;}
+  .tool-list{display:flex;flex-direction:column;gap:6px;}
+  .tool-list .row{margin:0;gap:6px;}
+  .btn.active{background:#31405c;border-color:var(--accent);color:#dce9ff;}
+  .btn svg{width:15px;height:15px;flex:0 0 auto;}
+
+  main{flex:1;display:flex;min-height:0;}
+  .panel{display:flex;flex-direction:column;gap:4px;overflow-y:auto;padding:9px 12px;scrollbar-width:thin;scrollbar-color:#3d434e transparent;}
+  .panel::-webkit-scrollbar{width:10px;}
+  .panel::-webkit-scrollbar-track{background:transparent;}
+  .panel::-webkit-scrollbar-thumb{background:#3d434e;border-radius:6px;border:2px solid var(--bg2);}
+  .panel::-webkit-scrollbar-thumb:hover{background:#4c5360;}
+  .left{flex:0 0 290px;border-right:1px solid var(--border);background:var(--bg2);}
+  .center{flex:1;display:flex;flex-direction:column;min-width:0;background:#0e0f12;}
+  .center-toolbar{
+    flex:0 0 auto;display:flex;align-items:center;gap:8px;
+    padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg2);
+    flex-wrap:wrap;
+  }
+  .canvas-wrap{flex:1;overflow:auto;position:relative;}
+  .canvas-wrap.panning{cursor:grabbing;}
+  .canvas-stage{position:relative;display:inline-block;vertical-align:top;margin:16px;}
+  #editorCanvas{
+    display:block;
+    image-rendering:pixelated;
+    background:#0a0a0c;
+    border:1px solid var(--border);
+    box-shadow:0 4px 24px rgba(0,0,0,.5);
+    cursor:crosshair;
+  }
+  #brushOverlay{position:absolute;left:0;top:0;pointer-events:none;display:block;}
+  #maskOverlay{position:absolute;left:0;top:0;pointer-events:none;display:block;}
+  .center-toolbar .label{color:var(--muted);font-size:12px;}
+
+  .block{
+    background:var(--panel);border:1px solid var(--border);
+    border-radius:var(--radius);padding:7px 10px;
+  }
+  .block h4{
+    margin:0 0 5px;font-size:11px;font-weight:600;letter-spacing:.06em;
+    color:var(--muted);text-transform:uppercase;
+  }
+  .row{display:flex;align-items:center;gap:8px;margin:4px 0;}
+  .row .key{color:var(--muted);flex:0 0 62px;font-size:12px;}
+  .row .num{
+    flex:0 0 78px;width:78px;
+    background:var(--panel2);border:1px solid var(--border);
+    color:#c9cfda;border-radius:6px;padding:3px 6px;
+    font-size:12px;text-align:right;font-variant-numeric:tabular-nums;line-height:1.2;
+  }
+  .row .num:focus{border-color:var(--accent);outline:none;background:#2b303a;}
+  .row .num::-webkit-outer-spin-button,.row .num::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+  .row .num{-moz-appearance:textfield;appearance:textfield;}
+  input[type=range]{flex:1;min-width:0;accent-color:var(--accent);height:4px;}
+  select{
+    width:100%;background:var(--panel2);color:var(--text);
+    border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;
+  }
+  #resolution{width:auto;min-width:112px;flex:0 0 auto;}
+  .center-toolbar select{width:auto;min-width:104px;flex:0 0 auto;}
+  .check{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12.5px;cursor:pointer;color:#cfd5de;}
+  .check input{accent-color:var(--accent);}
+
+  footer{
+    flex:0 0 auto;display:flex;align-items:center;gap:14px;
+    padding:5px 14px;background:var(--bg2);border-top:1px solid var(--border);
+    color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;
+  }
+  footer .sep{color:var(--border);}
+  .kbd{
+    background:var(--panel2);border:1px solid var(--border);border-radius:4px;
+    padding:0 5px;font-size:11px;color:var(--muted);
+  }
+  .hint-line{color:var(--muted);font-size:11.5px;line-height:1.5;}
+  a{color:var(--accent);}
+  hr{border:none;border-top:1px solid var(--border);margin:8px 0;}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><span class="dot"></span>FlowMap 绘制器</div>
+  <div class="sub">沿拖动方向绘制流向 · 实时流动预览</div>
+</header>
+
+<main>
+  <aside class="panel left">
+    <button class="btn import" id="btnImport" title="导入一张图片作为流动底图（如天空、水面、毛发）" style="width:100%;justify-content:center;flex:0 0 auto">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+      导入纹理
+    </button>
+    <div class="block">
+      <h4>工具 Tools</h4>
+      <div class="tool-list">
+      <button class="btn tool active" id="toolPaint" data-tool="paint">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3zM18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5zM2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></svg>
+        绘制
+      </button>
+      <button class="btn tool" id="toolFlatten" data-tool="flatten">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+        橡皮擦
+      </button>
+      <button class="btn tool" id="toolSmooth" data-tool="smooth">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12c2.5-4 5.5-4 8 0s5.5 4 8 0M2 7c2.5-4 5.5-4 8 0s5.5 4 8 0M2 17c2.5-4 5.5-4 8 0s5.5 4 8 0"/></svg>
+        平滑
+      </button>
+      <button class="btn tool" id="toolFillStatic">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m19 11-8-8-8.6 8.6a2 2 0 0 0 0 2.8l5.2 5.2c.8.8 2 .8 2.8 0L19 11Z"/><path d="m5 2 5 5"/><path d="M2 13h15"/><path d="M22 20a2 2 0 1 1-4 0c0-1.6 1.7-2.4 2-4 .3 1.6 2 2.4 2 4Z"/></svg>
+        填充
+      </button>
+      <div class="row">
+        <button class="btn tool" id="toolFillAngle" style="flex:1;min-width:0">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h15M13 6l6 6-6 6"/></svg>
+          填充方向（角度）
+        </button>
+        <input type="number" class="num" id="fillAngleNum" min="0" max="360" step="1" value="0" style="flex:0 0 58px;text-align:center;height:30px" title="填充方向角度（0°=上，顺时针）">
+      </div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h4>笔刷 Brush</h4>
+      <div class="row"><span class="key">大小</span><input type="range" id="brushSize" min="2" max="256" value="64"><input type="number" class="num" id="brushSizeNum" min="2" max="256" step="1" value="64"></div>
+      <div class="row"><span class="key">强度</span><input type="range" id="brushStrength" min="0.01" max="1" step="0.01" value="0.02"><input type="number" class="num" id="brushStrengthNum" min="0.01" max="1" step="0.01" value="0.02"></div>
+    </div>
+
+    <div class="block">
+      <h4>流动 Flow</h4>
+      <div class="row"><span class="key">速度</span><input type="range" id="flowSpeed" min="0.05" max="3" step="0.000001" value="0.2"><input type="number" class="num" id="flowSpeedNum" min="0.05" max="3" step="0.001" value="0.2"></div>
+      <div class="row"><span class="key">强度</span><input type="range" id="flowDistortion" min="0.05" max="1" step="0.000001" value="0.15"><input type="number" class="num" id="flowDistortionNum" min="0.05" max="1" step="0.001" value="0.15"></div>
+      <label class="check"><input type="checkbox" id="reverseFlow">反向流动</label>
+    </div>
+
+    <div class="block">
+      <h4>操作 Actions</h4>
+      <button class="btn small" id="btnImportFlow" style="width:100%;margin-top:6px;justify-content:center">导入流向图（编辑已有流向）</button>
+      <div class="row" style="gap:6px;margin-top:6px">
+        <button class="btn small gen" data-gen="swirl" style="flex:1;justify-content:center">旋涡</button>
+        <button class="btn small gen" data-gen="radial" style="flex:1;justify-content:center">放射</button>
+        <button class="btn small gen" data-gen="wave" style="flex:1;justify-content:center">波浪</button>
+      </div>
+    </div>
+
+    <div class="block">
+      <h4>遮罩 Mask</h4>
+      <div class="row" style="gap:6px">
+        <button class="btn small mask-type active" data-mask="none" style="flex:1;justify-content:center">无</button>
+        <button class="btn small mask-type" data-mask="rect" style="flex:1;justify-content:center">方形</button>
+        <button class="btn small mask-type" data-mask="ring" style="flex:1;justify-content:center">圆</button>
+      </div>
+      <div id="maskParams" style="display:none;margin-top:6px">
+        <div class="row"><span class="key">位置 X</span><input type="range" id="maskCx" min="0" max="1" step="0.001" value="0.5"><input type="number" class="num" id="maskCxNum" min="0" max="1" step="0.001" value="0.5"></div>
+        <div class="row"><span class="key">位置 Y</span><input type="range" id="maskCy" min="0" max="1" step="0.001" value="0.5"><input type="number" class="num" id="maskCyNum" min="0" max="1" step="0.001" value="0.5"></div>
+        <div class="row" id="maskWRow" style="display:none"><span class="key">宽度</span><input type="range" id="maskW" min="0.02" max="1" step="0.001" value="0.5"><input type="number" class="num" id="maskWNum" min="0.02" max="1" step="0.001" value="0.5"></div>
+        <div class="row" id="maskHRow" style="display:none"><span class="key">高度</span><input type="range" id="maskH" min="0.02" max="1" step="0.001" value="0.5"><input type="number" class="num" id="maskHNum" min="0.02" max="1" step="0.001" value="0.5"></div>
+        <div class="row" id="maskRectFeatherRow" style="display:none"><span class="key">羽化</span><input type="range" id="maskFeather" min="0" max="0.3" step="0.001" value="0.05"><input type="number" class="num" id="maskFeatherNum" min="0" max="0.3" step="0.001" value="0.05"></div>
+        <div class="row" id="maskRRow" style="display:none"><span class="key">外径</span><input type="range" id="maskR" min="0.02" max="0.6" step="0.001" value="0.3"><input type="number" class="num" id="maskRNum" min="0.02" max="0.6" step="0.001" value="0.3"></div>
+        <div class="row" id="maskOuterFeatherRow" style="display:none"><span class="key">外径羽化</span><input type="range" id="maskOuterFeather" min="0" max="0.3" step="0.001" value="0"><input type="number" class="num" id="maskOuterFeatherNum" min="0" max="0.3" step="0.001" value="0"></div>
+        <div class="row" id="maskInnerRow" style="display:none"><span class="key">内径</span><input type="range" id="maskInner" min="0" max="0.6" step="0.001" value="0"><input type="number" class="num" id="maskInnerNum" min="0" max="0.6" step="0.001" value="0"></div>
+        <div class="row" id="maskInnerFeatherRow" style="display:none"><span class="key">内径羽化</span><input type="range" id="maskInnerFeather" min="0" max="0.3" step="0.001" value="0"><input type="number" class="num" id="maskInnerFeatherNum" min="0" max="0.3" step="0.001" value="0"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="maskHiddenToggle">隐藏遮罩（效果仍生效）</label>
+    </div>
+
+    <div class="block">
+      <h4>导出选项 Export</h4>
+      <label class="check" style="font-weight:600;color:#8ab4ff"><input type="checkbox" id="ueFlip" checked>UE 适配（反转流向方向）</label>
+      <div class="row" style="margin-top:10px"><span class="key">导出大小</span>
+        <select id="exportSize" style="flex:1;width:auto">
+          <option value="64" selected>64 × 64</option>
+          <option value="128">128 × 128</option>
+          <option value="256">256 × 256</option>
+          <option value="512">512 × 512</option>
+        </select>
+      </div>
+      <div class="row" style="gap:14px">
+        <label class="check" style="margin:0"><input type="checkbox" id="flipX">翻转 X</label>
+        <label class="check" style="margin:0"><input type="checkbox" id="flipY">翻转 Y</label>
+      </div>
+      <button class="btn primary" id="btnExport" style="width:100%;justify-content:center;margin-top:8px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 8l5-5 5 5M12 3v12"/></svg>
+        导出流向图
+      </button>
+      <button class="btn primary" id="btnExportNormal" style="width:100%;justify-content:center;margin-top:6px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 8l5-5 5 5M12 3v12"/></svg>
+        导出法线贴图
+      </button>
+    </div>
+  </aside>
+
+  <section class="center">
+    <div class="center-toolbar">
+      <span class="label" title="流向场数据的分辨率，即导出的流向图尺寸；导入的纹理图会缩放适配到此尺寸">分辨率</span>
+      <select id="resolution">
+        <option value="256">256 × 256</option>
+        <option value="512" selected>512 × 512</option>
+        <option value="1024">1024 × 1024</option>
+        <option value="2048">2048 × 2048</option>
+      </select>
+      <span class="label" style="margin-left:8px">视图</span>
+      <button class="btn small active" id="btnViewFlow">预览</button>
+      <button class="btn small" id="btnViewMap">流向图</button>
+      <button class="btn small" id="btnViewNormal">法线图</button>
+      <label class="check" style="margin:0 0 0 8px"><input type="checkbox" id="tilePreviewToggle">平铺</label>
+      <div class="spacer"></div>
+      <button class="btn small" id="btnUndo" title="撤销 (Ctrl+Z)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>
+      </button>
+      <button class="btn small" id="btnRedo" title="重做 (Ctrl+Y)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 7v6h-6M21 13a9 9 0 1 1-3-7.7L21 8"/></svg>
+      </button>
+    </div>
+    <div class="canvas-wrap" id="canvasWrap">
+      <div class="canvas-stage">
+        <canvas id="editorCanvas"></canvas>
+        <canvas id="maskOverlay"></canvas>
+        <canvas id="brushOverlay"></canvas>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span>工具：<b id="footTool">绘制</b></span><span class="sep">|</span>
+  <span>坐标 <span id="footPos">—</span></span><span class="sep">|</span>
+  <span>流向 <span id="footFlow">—</span></span><span class="sep">|</span>
+  <span>颜色 <span id="footColor">—</span></span>
+  <span class="spacer" style="flex:1"></span>
+  <span><span class="kbd">Ctrl+Z</span> 撤销</span>
+  <span><span class="kbd">Ctrl+Y</span> 重做</span>
+  <span class="sep">|</span>
+  <span>R=X · G=Y · B=128（流向）</span>
+  <span class="sep">|</span>
+  <span>滚轮缩放 · 空格/中键拖拽平移</span>
+</footer>
+
+<input type="file" id="fileInput" accept="image/*" style="display:none">
+<input type="file" id="fileInputFlow" accept="image/*" style="display:none">
+
+<script>
+"use strict";
+/* ============================================================
+ * 流向图绘制器
+ * 核心算法：
+ *   · 笔刷方向 = 鼠标拖动方向（flow = normalize(current - last)）
+ *   · 笔刷衰减 falloff = (1 - d²/r²)²，线性混合（lerp）
+ *   · 预览：双相位采样 + fract 循环 + 三角权重混合
+ *   · 流动速度（speed）与流动强度（distortion）是两个独立参数
+ * ============================================================ */
+
+/* ---------- 状态 ---------- */
+let W = 512, H = 512;
+let flow = new Float32Array(W * H * 2);            // 流向 (vx, vy)，静止=(0,0)，范围 [-1,1]
+let textureData = new Uint8ClampedArray(W * H * 4); // 纹理（流动底图）
+let tool = 'paint';
+let brush = { size: 64, strength: 0.02 };
+let flowSpeed = 0.2;          // 流动速度
+let flowDistortion = 0.15;    // 流动强度
+let reverseFlow = false;      // 反向流动（反转流动方向）
+let mask = { type: 'none', cx: 0.5, cy: 0.5, w: 0.5, h: 0.5, feather: 0.05, r: 0.3, outerFeather: 0, inner: 0, innerFeather: 0 }; // 遮罩（相对画布 0~1）
+let maskHidden = false;       // 隐藏遮罩可视化（效果仍生效）
+let lastDirX = 1, lastDirY = 0;   // 上一次拖动方向
+let seamless = true;
+let viewMode = 'flow';
+let tileMode = false;
+let zoom = 1;
+let fitMode = true;
+let panning = false, panStartX = 0, panStartY = 0, panScrollL = 0, panScrollT = 0;
+let spaceHeld = false;
+let cursorVisible = false, cursorX = 0, cursorY = 0;
+let dirty = true;
+const undoStack = [];
+const redoStack = [];
+const MAX_UNDO = 40;
+
+/* ---------- DOM ---------- */
+const $ = (id) => document.getElementById(id);
+const editor = $('editorCanvas');
+const ectx = editor.getContext('2d');
+const wrap = $('canvasWrap');
+const brushOverlay = $('brushOverlay');
+const octx = brushOverlay.getContext('2d');
+const maskOverlay = $('maskOverlay');
+const mctx = maskOverlay.getContext('2d');
+
+/* ---------- 流动渲染缓冲（限制分辨率，保证大图导出时预览流畅） ---------- */
+const RENDER_RES = 512;
+const flowTmp = document.createElement('canvas');
+const flowCtx = flowTmp.getContext('2d');
+let flowImageData = null;
+let renderW = 512, renderH = 512;
+
+function initFlowRender(){
+  renderW = Math.min(W, RENDER_RES);
+  renderH = Math.min(H, RENDER_RES);
+  flowTmp.width = renderW; flowTmp.height = renderH;
+  flowImageData = flowCtx.createImageData(renderW, renderH);
+}
+
+/* ---------- 默认纹理：程序生成的蓝天白云（未导入时的占位） ---------- */
+function cloudBlob(x, y, cx, cy, r){
+  const dx = x - cx, dy = y - cy;
+  const d2 = dx*dx + dy*dy;
+  const r2 = r * r;
+  if (d2 > r2 * 3.5) return 0;
+  return Math.exp(-d2 / r2);
+}
+
+function makeDefaultTexture(){
+  const d = textureData;
+  for (let y = 0; y < H; y++){
+    const t = y / H;
+    for (let x = 0; x < W; x++){
+      const p = (y * W + x) * 4;
+      let r = 105 + t * 95;
+      let g = 165 + t * 60;
+      let b = 230 - t * 40;
+      let cloud = cloudBlob(x, y, 0.28*W, 0.30*H, 0.09*W);
+      cloud = Math.max(cloud, cloudBlob(x, y, 0.34*W, 0.26*H, 0.06*W));
+      cloud = Math.max(cloud, cloudBlob(x, y, 0.68*W, 0.22*H, 0.11*W));
+      cloud = Math.max(cloud, cloudBlob(x, y, 0.52*W, 0.55*H, 0.14*W));
+      cloud = Math.max(cloud, cloudBlob(x, y, 0.82*W, 0.60*H, 0.09*W));
+      cloud = Math.max(cloud, cloudBlob(x, y, 0.15*W, 0.72*H, 0.12*W));
+      if (cloud > 0){
+        const a = Math.min(1, cloud) * 0.95;
+        r += (255 - r) * a;
+        g += (255 - g) * a;
+        b += (255 - b) * a;
+      }
+      d[p] = r; d[p+1] = g; d[p+2] = b; d[p+3] = 255;
+    }
+  }
+}
+
+initFlow();
+makeDefaultTexture();
+
+/* ---------- 分辨率 ---------- */
+function applyResolution(n){
+  W = n; H = n;
+  const oldFlow = flow;
+  const oldTex = textureData;
+  const ow = Math.round(Math.sqrt(oldFlow.length / 2));
+  const oh = ow;
+  flow = new Float32Array(W * H * 2);
+  textureData = new Uint8ClampedArray(W * H * 4);
+  if (ow && oh){
+    for (let y = 0; y < H; y++){
+      for (let x = 0; x < W; x++){
+        const sx = Math.min(ow - 1, Math.floor(x * ow / W));
+        const sy = Math.min(oh - 1, Math.floor(y * oh / H));
+        const si = (sy * ow + sx) * 2, di = (y * W + x) * 2;
+        flow[di] = oldFlow[si]; flow[di+1] = oldFlow[si+1];
+        const sti = (sy * ow + sx) * 4, dti = (y * W + x) * 4;
+        textureData[dti]   = oldTex[sti];
+        textureData[dti+1] = oldTex[sti+1];
+        textureData[dti+2] = oldTex[sti+2];
+        textureData[dti+3] = oldTex[sti+3];
+      }
+    }
+  } else {
+    initFlow();
+    makeDefaultTexture();
+  }
+  syncCanvasSize();
+  initFlowRender();
+  undoStack.length = 0; redoStack.length = 0;
+  fitToScreen();
+  markDirty();
+}
+
+function initFlow(){ flow.fill(0); }
+
+function flowToColor(vx, vy){
+  return [Math.round((vx*0.5+0.5)*255), Math.round((vy*0.5+0.5)*255), 128];
+}
+function markDirty(){ dirty = true; }
+
+/* ---------- 视口缩放 / 平移 ---------- */
+function applyZoom(){
+  editor.style.width = (editor.width * zoom) + 'px';
+  editor.style.height = (editor.height * zoom) + 'px';
+  brushOverlay.style.width = editor.style.width;
+  brushOverlay.style.height = editor.style.height;
+  maskOverlay.style.width = editor.style.width;
+  maskOverlay.style.height = editor.style.height;
+}
+function fitToScreen(){
+  const availW = wrap.clientWidth - 32;
+  const availH = wrap.clientHeight - 32;
+  if (availW <= 0 || availH <= 0){ zoom = 1; applyZoom(); return; }
+  zoom = Math.max(0.05, Math.min(4, Math.min(availW / editor.width, availH / editor.height)));
+  applyZoom();
+  wrap.scrollLeft = 0; wrap.scrollTop = 0;
+}
+
+function syncCanvasSize(){
+  editor.width = tileMode ? W * 3 : W;
+  editor.height = tileMode ? H * 3 : H;
+  brushOverlay.width = editor.width;
+  brushOverlay.height = editor.height;
+  maskOverlay.width = editor.width;
+  maskOverlay.height = editor.height;
+  applyZoom();
+  drawMaskOverlay();
+}
+
+/* ---------- 双线性采样 ---------- */
+function sampleFlow(gx, gy){
+  const x0 = Math.floor(gx), y0 = Math.floor(gy);
+  const fx_ = gx - x0, fy_ = gy - y0;
+  const x0w = ((x0 % W) + W) % W, y0w = ((y0 % H) + H) % H;
+  const x1 = (x0w + 1) % W, y1 = (y0w + 1) % H;
+  const i00 = (y0w * W + x0w) * 2;
+  const i10 = (y0w * W + x1) * 2;
+  const i01 = (y1 * W + x0w) * 2;
+  const i11 = (y1 * W + x1) * 2;
+  const w00 = (1-fx_)*(1-fy_), w10 = fx_*(1-fy_), w01 = (1-fx_)*fy_, w11 = fx_*fy_;
+  return [
+    flow[i00]*w00 + flow[i10]*w10 + flow[i01]*w01 + flow[i11]*w11,
+    flow[i00+1]*w00 + flow[i10+1]*w10 + flow[i01+1]*w01 + flow[i11+1]*w11
+  ];
+}
+
+function sampleTexture(sx, sy){
+  const x0 = Math.floor(sx), y0 = Math.floor(sy);
+  const fx_ = sx - x0, fy_ = sy - y0;
+  const x1 = (x0 + 1) % W, y1 = (y0 + 1) % H;
+  const i00 = (y0 * W + x0) * 4;
+  const i10 = (y0 * W + x1) * 4;
+  const i01 = (y1 * W + x0) * 4;
+  const i11 = (y1 * W + x1) * 4;
+  const w00 = (1-fx_)*(1-fy_), w10 = fx_*(1-fy_), w01 = (1-fx_)*fy_, w11 = fx_*fy_;
+  // 预乘 alpha 加权采样：透明像素不污染边缘，避免黑色/彩色噪点
+  const a00 = textureData[i00+3], a10 = textureData[i10+3], a01 = textureData[i01+3], a11 = textureData[i11+3];
+  const pr = textureData[i00]*a00*w00 + textureData[i10]*a10*w10 + textureData[i01]*a01*w01 + textureData[i11]*a11*w11;
+  const pg = textureData[i00+1]*a00*w00 + textureData[i10+1]*a10*w10 + textureData[i01+1]*a01*w01 + textureData[i11+1]*a11*w11;
+  const pb = textureData[i00+2]*a00*w00 + textureData[i10+2]*a10*w10 + textureData[i01+2]*a01*w01 + textureData[i11+2]*a11*w11;
+  const pa = a00*w00 + a10*w10 + a01*w01 + a11*w11;
+  if (pa < 1) return [255, 255, 255, 0];
+  return [pr / pa, pg / pa, pb / pa, pa];
+}
+
+/* ---------- 遮罩 ---------- */
+function clamp01(v){ return v < 0 ? 0 : v > 1 ? 1 : v; }
+
+/* 遮罩权重：1 = 完全流动，0 = 完全静止；羽化区间线性过渡 */
+function maskWeight(x, y){
+  if (mask.type === 'none') return 1;
+  if (mask.type === 'rect'){
+    const f = mask.feather * W;
+    const hw = mask.w * W * 0.5, hh = mask.h * H * 0.5;
+    const dx = Math.max(Math.abs(x - mask.cx * W) - hw, 0);
+    const dy = Math.max(Math.abs(y - mask.cy * H) - hh, 0);
+    const dist = Math.hypot(dx, dy);
+    return f <= 0 ? (dist <= 0 ? 1 : 0) : clamp01(1 - dist / f);
+  }
+  // 圆（环）：外径 + 外径羽化、内径 + 内径羽化，内外各边独立羽化
+  const R = mask.r * W;                    // 外径（流动带外缘）
+  const rIn = mask.inner * W;              // 内径（黄色死区，默认0=实心圆）
+  const fOut = mask.outerFeather * W;      // 外径羽化
+  const fIn = mask.innerFeather * W;       // 内径羽化
+  const dist = Math.hypot(x - mask.cx * W, y - mask.cy * H);
+  const wOut = fOut <= 0 ? (dist <= R ? 1 : 0) : clamp01(1 - Math.max(dist - R, 0) / fOut);
+  const wIn  = fIn  <= 0 ? (dist >= rIn ? 1 : 0) : clamp01(1 - Math.max(rIn - dist, 0) / fIn);
+  return Math.min(wOut, wIn);
+}
+
+/* 遮罩可视化：逐像素按 maskWeight 渲染真实羽化渐变（红色=流动区，半径模式中心黄色=死区；无描边，可隐藏） */
+function drawMaskOverlay(){
+  mctx.clearRect(0, 0, maskOverlay.width, maskOverlay.height);
+  if (mask.type === 'none' || maskHidden) return;
+  const cap = 512;
+  const pw = Math.min(W, cap), ph = Math.min(H, cap);
+  const buf = document.createElement('canvas');
+  buf.width = pw; buf.height = ph;
+  const bctx = buf.getContext('2d');
+  const img = bctx.createImageData(pw, ph);
+  const d = img.data;
+  const isRing = mask.type === 'ring';
+  const cxP = mask.cx * W, cyP = mask.cy * H;
+  const R = mask.r * W, rIn = mask.inner * W;
+  for (let py = 0; py < ph; py++){
+    const gy = (py + 0.5) * H / ph;
+    for (let px = 0; px < pw; px++){
+      const gx = (px + 0.5) * W / pw;
+      const w = maskWeight(gx, gy);      // 流动权重（含羽化渐变）
+      const ar = w * 0.45;               // 红色 = 流动区（环带内=1，向内向外羽化到0）
+      let ay = 0;                        // 黄色 = 死区（仅半径模式内圈中心）
+      if (isRing){
+        const dist = Math.hypot(gx - cxP, gy - cyP);
+        if (dist < rIn){ ay = (1 - w) * 0.55; }
+      }
+      const i = (py * pw + px) * 4;
+      let rr = 0, gg = 0, bb = 0, aa = 0;
+      if (ar > 0 || ay > 0){
+        // 黄色在下、红色在上，标准 alpha over 合成；内圈/外圈羽化区交叉渐变
+        const outA = ar + ay * (1 - ar);
+        rr = (255 * ar + 255 * ay * (1 - ar)) / outA;
+        gg = (70 * ar + 200 * ay * (1 - ar)) / outA;
+        bb = (70 * ar + 60 * ay * (1 - ar)) / outA;
+        aa = outA;
+      }
+      d[i] = rr; d[i+1] = gg; d[i+2] = bb; d[i+3] = Math.round(Math.min(255, aa * 255));
+    }
+  }
+  bctx.putImageData(img, 0, 0);
+  mctx.imageSmoothingEnabled = true;
+  const drawAt = (ox, oy) => mctx.drawImage(buf, ox, oy, W, H);
+  if (tileMode){
+    for (let ty = 0; ty < 3; ty++) for (let tx = 0; tx < 3; tx++) drawAt(tx * W, ty * H);
+  } else {
+    drawAt(0, 0);
+  }
+}
+
+/* ---------- 渲染循环 ---------- */
+function loop(timeMs){
+  if (viewMode === 'flow'){
+    renderFlow(timeMs);
+  } else if (dirty){
+    if (viewMode === 'normal') renderNormalView();
+    else renderMapView();
+    dirty = false;
+  }
+  requestAnimationFrame(loop);
+}
+
+/* 双相位流动渲染 */
+function renderFlow(timeMs){
+  const d = flowImageData.data;
+  const phaseTime = timeMs * 0.001 * flowSpeed;       // 相位时间
+  const phase0 = phaseTime - Math.floor(phaseTime);    // fract(t)
+  const phase1 = phaseTime + 0.5 - Math.floor(phaseTime + 0.5); // fract(t+0.5)
+  const weight = Math.abs((0.5 - phase0) / 0.5);       // 三角权重混合
+  const dist = flowDistortion;
+
+  for (let ry = 0; ry < renderH; ry++){
+    const gy = ry * H / renderH;
+    for (let rx = 0; rx < renderW; rx++){
+      const gx = rx * W / renderW;
+      const fl = sampleFlow(gx, gy);
+      const mw = maskWeight(gx, gy);
+      const fx = fl[0] * mw, fy = fl[1] * mw;
+
+      // 两相位偏移（沿流向反方向采样，材质沿流向移动）
+      const flip = reverseFlow ? 1 : -1;
+      const ox0 = flip * fx * phase0 * dist * W;
+      const oy0 = flip * fy * phase0 * dist * H;
+      const ox1 = flip * fx * phase1 * dist * W;
+      const oy1 = flip * fy * phase1 * dist * H;
+
+      let sx0 = gx + ox0, sy0 = gy + oy0;
+      let sx1 = gx + ox1, sy1 = gy + oy1;
+      sx0 = sx0 - Math.floor(sx0 / W) * W;
+      sy0 = sy0 - Math.floor(sy0 / H) * H;
+      sx1 = sx1 - Math.floor(sx1 / W) * W;
+      sy1 = sy1 - Math.floor(sy1 / H) * H;
+
+      const c0 = sampleTexture(sx0, sy0);
+      const c1 = sampleTexture(sx1, sy1);
+
+      const p = (ry * renderW + rx) * 4;
+      d[p]   = c0[0] * (1-weight) + c1[0] * weight;
+      d[p+1] = c0[1] * (1-weight) + c1[1] * weight;
+      d[p+2] = c0[2] * (1-weight) + c1[2] * weight;
+      d[p+3] = c0[3] * (1-weight) + c1[3] * weight;
+    }
+  }
+  flowCtx.putImageData(flowImageData, 0, 0);
+  ectx.imageSmoothingEnabled = true;
+  ectx.clearRect(0, 0, editor.width, editor.height);
+  if (tileMode){
+    for (let ty = 0; ty < 3; ty++)
+      for (let tx = 0; tx < 3; tx++)
+        ectx.drawImage(flowTmp, tx * W, ty * H, W, H);
+  } else {
+    ectx.drawImage(flowTmp, 0, 0, W, H);
+  }
+}
+
+function renderMapView(){
+  const id = ectx.createImageData(W, H);
+  const d = id.data;
+  for (let y = 0; y < H; y++){
+    for (let x = 0; x < W; x++){
+      const i = (y * W + x) * 2, p = (y * W + x) * 4;
+      const mw = maskWeight(x, y);
+      const fx = flow[i] * mw, fy = flow[i+1] * mw;
+      d[p]   = Math.round((fx * 0.5 + 0.5) * 255);
+      d[p+1] = Math.round((fy * 0.5 + 0.5) * 255);
+      d[p+2] = 128;
+      d[p+3] = 255;
+    }
+  }
+  const tmp = document.createElement('canvas');
+  tmp.width = W; tmp.height = H;
+  tmp.getContext('2d').putImageData(id, 0, 0);
+  ectx.imageSmoothingEnabled = false;
+  ectx.clearRect(0, 0, editor.width, editor.height);
+  if (tileMode){
+    for (let ty = 0; ty < 3; ty++)
+      for (let tx = 0; tx < 3; tx++)
+        ectx.drawImage(tmp, tx * W, ty * H);
+  } else {
+    ectx.drawImage(tmp, 0, 0);
+  }
+}
+
+function renderNormalView(){
+  const id = ectx.createImageData(W, H);
+  const d = id.data;
+  for (let y = 0; y < H; y++){
+    for (let x = 0; x < W; x++){
+      const i = (y * W + x) * 2, p = (y * W + x) * 4;
+      const mw = maskWeight(x, y);
+      const fx = flow[i] * mw, fy = flow[i+1] * mw;
+      d[p]   = Math.round((fx * 0.5 + 0.5) * 255);
+      d[p+1] = Math.round((fy * 0.5 + 0.5) * 255);
+      const len2 = Math.min(fx * fx + fy * fy, 1);
+      d[p+2] = Math.round((Math.sqrt(1 - len2) * 0.5 + 0.5) * 255);
+      d[p+3] = 255;
+    }
+  }
+  const tmp = document.createElement('canvas');
+  tmp.width = W; tmp.height = H;
+  tmp.getContext('2d').putImageData(id, 0, 0);
+  ectx.imageSmoothingEnabled = false;
+  ectx.clearRect(0, 0, editor.width, editor.height);
+  if (tileMode){
+    for (let ty = 0; ty < 3; ty++)
+      for (let tx = 0; tx < 3; tx++)
+        ectx.drawImage(tmp, tx * W, ty * H);
+  } else {
+    ectx.drawImage(tmp, 0, 0);
+  }
+}
+
+/* ---------- 笔刷光标预览（大小 + 衰减范围） ---------- */
+function drawBrushCursor(x, y){
+  octx.clearRect(0, 0, brushOverlay.width, brushOverlay.height);
+  const r = brush.size / 2;
+  if (r < 1) return;
+  const g = octx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, 'rgba(255,255,255,0.30)');
+  g.addColorStop(0.6, 'rgba(255,255,255,0.12)');
+  g.addColorStop(1, 'rgba(255,255,255,0.0)');
+  octx.fillStyle = g;
+  octx.beginPath(); octx.arc(x, y, r, 0, Math.PI*2); octx.fill();
+  octx.strokeStyle = 'rgba(255,255,255,0.45)';
+  octx.lineWidth = 1;
+  octx.setLineDash([3,3]);
+  octx.beginPath(); octx.arc(x, y, r * 0.541, 0, Math.PI*2); octx.stroke();
+  octx.setLineDash([]);
+  octx.strokeStyle = 'rgba(255,255,255,0.95)';
+  octx.lineWidth = 1.2;
+  octx.beginPath(); octx.arc(x, y, r, 0, Math.PI*2); octx.stroke();
+  octx.fillStyle = 'rgba(255,255,255,0.95)';
+  octx.beginPath(); octx.arc(x, y, 1.5, 0, Math.PI*2); octx.fill();
+}
+function clearBrushCursor(){
+  octx.clearRect(0, 0, brushOverlay.width, brushOverlay.height);
+}
+
+/* ---------- 笔刷 stamp（方向由调用方传入） ---------- */
+function stamp(cx, cy, fx, fy){
+  const radius = brush.size / 2;
+  const r2 = radius * radius;
+  const x0 = Math.floor(cx - radius), x1 = Math.ceil(cx + radius);
+  const y0 = Math.floor(cy - radius), y1 = Math.ceil(cy + radius);
+  for (let y = y0; y <= y1; y++){
+    for (let x = x0; x <= x1; x++){
+      let wx = x, wy = y;
+      if (seamless){
+        wx = ((x % W) + W) % W;
+        wy = ((y % H) + H) % H;
+      } else {
+        if (x < 0 || x >= W || y < 0 || y >= H) continue;
+      }
+      const dx = x - cx, dy = y - cy;
+      const d2 = dx*dx + dy*dy;
+      if (d2 > r2) continue;
+      const falloff = 1 - d2 / r2;              // 二次平滑衰减 (1 - d²/r²)
+      const a = brush.strength * falloff * falloff; // 再平方，边缘更平滑
+      const idx = (wy * W + wx) * 2;
+      flow[idx]   += (fx - flow[idx]) * a;
+      flow[idx+1] += (fy - flow[idx+1]) * a;
+    }
+  }
+}
+
+/* 平滑笔刷：局部盒式模糊（滑动窗口，O(n)），大笔刷也不会卡死 */
+function smoothStamp(cx, cy){
+  const radius = brush.size / 2;
+  const r2 = radius * radius;
+  const sr = Math.max(2, brush.size * 0.2);
+  const srI = Math.round(sr);
+  const x0 = Math.floor(cx - radius), x1 = Math.ceil(cx + radius);
+  const y0 = Math.floor(cy - radius), y1 = Math.ceil(cy + radius);
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+  if (bw <= 0 || bh <= 0) return;
+
+  // 1. 读取局部 patch（越界像素标记 NaN，邻域平均时跳过）
+  const patch = new Float32Array(bw * bh * 2);
+  for (let y = 0; y < bh; y++){
+    for (let x = 0; x < bw; x++){
+      const wx = x0 + x, wy = y0 + y;
+      const pi = (y * bw + x) * 2;
+      let sx = wx, sy = wy, valid = true;
+      if (seamless){ sx = ((wx % W) + W) % W; sy = ((wy % H) + H) % H; }
+      else { if (wx < 0 || wx >= W || wy < 0 || wy >= H) valid = false; }
+      if (valid){
+        const si = (sy * W + sx) * 2;
+        patch[pi] = flow[si]; patch[pi+1] = flow[si+1];
+      } else {
+        patch[pi] = NaN; patch[pi+1] = NaN;
+      }
+    }
+  }
+
+  // 2. 两遍盒式模糊（水平 + 垂直），滑动窗口累加，NaN 跳过
+  function boxBlurPass(src, bw, bh, horizontal){
+    const out = new Float32Array(src.length);
+    const n = horizontal ? bw : bh;
+    const m = horizontal ? bh : bw;
+    const idx = (i, j) => horizontal ? (j * bw + i) * 2 : (i * bw + j) * 2;
+    for (let j = 0; j < m; j++){
+      let sumX = 0, sumY = 0, cnt = 0;
+      for (let i = 0; i <= Math.min(srI, n - 1); i++){
+        const k = idx(i, j);
+        if (!isNaN(src[k])){ sumX += src[k]; sumY += src[k+1]; cnt++; }
+      }
+      for (let i = 0; i < n; i++){
+        const k = idx(i, j);
+        if (cnt > 0){ out[k] = sumX / cnt; out[k+1] = sumY / cnt; }
+        else { out[k] = NaN; out[k+1] = NaN; }
+        const rm = i - srI;
+        if (rm >= 0){
+          const rk = idx(rm, j);
+          if (!isNaN(src[rk])){ sumX -= src[rk]; sumY -= src[rk+1]; cnt--; }
+        }
+        const ad = i + srI + 1;
+        if (ad < n){
+          const ak = idx(ad, j);
+          if (!isNaN(src[ak])){ sumX += src[ak]; sumY += src[ak+1]; cnt++; }
+        }
+      }
+    }
+    return out;
+  }
+
+  let blur = boxBlurPass(patch, bw, bh, true);
+  blur = boxBlurPass(blur, bw, bh, false);
+
+  // 3. 写回（仅笔刷圆内、且邻域平均有效的像素）
+  for (let y = 0; y < bh; y++){
+    for (let x = 0; x < bw; x++){
+      const dx = (x0 + x) - cx, dy = (y0 + y) - cy;
+      const d2 = dx*dx + dy*dy;
+      if (d2 > r2) continue;
+      const bi = (y * bw + x) * 2;
+      if (isNaN(blur[bi])) continue;
+      const ax = blur[bi], ay = blur[bi+1];
+      const falloff = 1 - d2 / r2;
+      const a = brush.strength * falloff * falloff;
+      let wx = x0 + x, wy = y0 + y;
+      if (seamless){ wx = ((wx % W) + W) % W; wy = ((wy % H) + H) % H; }
+      else { if (wx < 0 || wx >= W || wy < 0 || wy >= H) continue; }
+      const idx2 = (wy * W + wx) * 2;
+      flow[idx2]   += (ax - flow[idx2]) * a;
+      flow[idx2+1] += (ay - flow[idx2+1]) * a;
+    }
+  }
+}
+
+/* ---------- 编辑画布指针事件（方向跟随拖动） ---------- */
+let drawing = false;
+let lastX = 0, lastY = 0;
+
+function canvasPos(e){
+  const rect = editor.getBoundingClientRect();
+  let x = (e.clientX - rect.left) * (editor.width / rect.width);
+  let y = (e.clientY - rect.top) * (editor.height / rect.height);
+  if (tileMode){
+    x = ((x - W) % W + W) % W;
+    y = ((y - H) % H + H) % H;
+  }
+  return [x, y];
+}
+function canvasPosRaw(e){
+  const rect = editor.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * (editor.width / rect.width);
+  const y = (e.clientY - rect.top) * (editor.height / rect.height);
+  return [x, y];
+}
+
+function applyStamp(x, y, fx, fy){
+  if (tool === 'paint') stamp(x, y, fx, fy);
+  else if (tool === 'flatten') stamp(x, y, 0, 0);
+  else if (tool === 'smooth') smoothStamp(x, y);
+}
+
+function startStroke(e){
+  if (e.button !== 0 || spaceHeld) return;
+  e.preventDefault();
+  editor.setPointerCapture(e.pointerId);
+  const [x, y] = canvasPos(e);
+  pushUndo();
+  drawing = true;
+  lastX = x; lastY = y;
+  // 单点：用上一次方向
+  applyStamp(x, y, lastDirX, lastDirY);
+  markDirty();
+}
+
+function moveStroke(e){
+  if (!drawing) return;
+  const [x, y] = canvasPos(e);
+  const dx = x - lastX, dy = y - lastY;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 0.4) return;
+  const fx = dx / dist, fy = dy / dist;
+  lastDirX = fx; lastDirY = fy;
+  const step = Math.max(1, brush.size * 0.2);
+  const n = Math.max(1, Math.ceil(dist / step));
+  for (let k = 1; k <= n; k++){
+    const ix = lastX + dx * k / n;
+    const iy = lastY + dy * k / n;
+    applyStamp(ix, iy, fx, fy);
+  }
+  lastX = x; lastY = y;
+  markDirty();
+}
+
+function endStroke(){
+  if (!drawing) return;
+  drawing = false;
+  markDirty();
+}
+
+editor.addEventListener('pointerdown', startStroke);
+editor.addEventListener('pointermove', moveStroke);
+editor.addEventListener('pointerup', endStroke);
+editor.addEventListener('pointercancel', endStroke);
+editor.addEventListener('pointerleave', () => { if (drawing) endStroke(); });
+
+/* 笔刷光标跟随 */
+editor.addEventListener('pointermove', (e) => {
+  if (drawing){ if (cursorVisible){ clearBrushCursor(); cursorVisible = false; } return; }
+  const [x, y] = canvasPosRaw(e);
+  cursorVisible = true; cursorX = x; cursorY = y;
+  drawBrushCursor(x, y);
+});
+editor.addEventListener('pointerleave', () => { clearBrushCursor(); cursorVisible = false; });
+
+/* 滚轮缩放（以鼠标位置为锚点） */
+wrap.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const rect = wrap.getBoundingClientRect();
+  const rx = e.clientX - rect.left;
+  const ry = e.clientY - rect.top;
+  const contentX = (wrap.scrollLeft + rx) / zoom;
+  const contentY = (wrap.scrollTop + ry) / zoom;
+  const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
+  zoom = Math.max(0.05, Math.min(8, zoom * factor));
+  fitMode = false;
+  applyZoom();
+  wrap.scrollLeft = contentX * zoom - rx;
+  wrap.scrollTop = contentY * zoom - ry;
+  if (cursorVisible) drawBrushCursor(cursorX, cursorY);
+}, { passive: false });
+
+/* 平移：中键拖动，或按住空格拖动 */
+wrap.addEventListener('pointerdown', (e) => {
+  if (e.button === 1 || (spaceHeld && e.button === 0)){
+    e.preventDefault();
+    panning = true;
+    panStartX = e.clientX; panStartY = e.clientY;
+    panScrollL = wrap.scrollLeft; panScrollT = wrap.scrollTop;
+    wrap.setPointerCapture(e.pointerId);
+    wrap.classList.add('panning');
+  }
+});
+wrap.addEventListener('pointermove', (e) => {
+  if (!panning) return;
+  wrap.scrollLeft = panScrollL - (e.clientX - panStartX);
+  wrap.scrollTop = panScrollT - (e.clientY - panStartY);
+});
+wrap.addEventListener('pointerup', () => {
+  if (!panning) return;
+  panning = false;
+  wrap.classList.remove('panning');
+});
+wrap.addEventListener('pointercancel', () => { panning = false; wrap.classList.remove('panning'); });
+
+/* 空格 = 平移模式 */
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space'){ e.preventDefault(); if (!spaceHeld){ spaceHeld = true; editor.style.cursor = 'grab'; } }
+});
+document.addEventListener('keyup', (e) => {
+  if (e.code === 'Space'){ spaceHeld = false; editor.style.cursor = 'crosshair'; }
+});
+window.addEventListener('resize', () => { if (fitMode) fitToScreen(); });
+
+editor.addEventListener('pointermove', (e) => {
+  if (drawing) return;
+  const [x, y] = canvasPos(e);
+  const px = Math.max(0, Math.min(W-1, Math.round(x)));
+  const py = Math.max(0, Math.min(H-1, Math.round(y)));
+  const i = (py * W + px) * 2;
+  const fx = flow[i], fy = flow[i+1];
+  const c = flowToColor(fx, fy);
+  $('footPos').textContent = `(${px}, ${py})`;
+  $('footFlow').textContent = `(${fx.toFixed(2)}, ${fy.toFixed(2)})`;
+  $('footColor').textContent = `#${c.map(v=>v.toString(16).padStart(2,'0')).join('')}`;
+});
+
+/* ---------- 撤销 / 重做 ---------- */
+function pushUndo(){
+  undoStack.push(flow.slice());
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+  redoStack.length = 0;
+}
+function undo(){
+  if (!undoStack.length) return;
+  redoStack.push(flow.slice());
+  flow = undoStack.pop();
+  markDirty();
+}
+function redo(){
+  if (!redoStack.length) return;
+  undoStack.push(flow.slice());
+  flow = redoStack.pop();
+  markDirty();
+}
+$('btnUndo').addEventListener('click', undo);
+$('btnRedo').addEventListener('click', redo);
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z'){ e.preventDefault(); undo(); }
+  if (e.ctrlKey && e.key.toLowerCase() === 'y'){ e.preventDefault(); redo(); }
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'z'){ e.preventDefault(); redo(); }
+});
+
+/* ---------- 填充 / 填充方向（角度） ---------- */
+$('toolFillStatic').addEventListener('click', () => {
+  pushUndo();
+  initFlow();
+  markDirty();
+});
+$('toolFillAngle').addEventListener('click', () => {
+  const ang = (parseFloat($('fillAngleNum').value) || 0) * Math.PI / 180;
+  const fx = Math.sin(ang), fy = -Math.cos(ang);
+  pushUndo();
+  for (let i = 0; i < W * H; i++){ flow[i*2] = fx; flow[i*2+1] = fy; }
+  markDirty();
+});
+
+/* ---------- 生成器 ---------- */
+function generate(kind){
+  pushUndo();
+  const cx = (W-1)/2, cy = (H-1)/2;
+  if (kind === 'swirl'){
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+      const dx = x - cx, dy = y - cy, r = Math.hypot(dx, dy) || 1;
+      const i = (y*W+x)*2;
+      flow[i] = -dy/r; flow[i+1] = dx/r;
+    }
+  } else if (kind === 'radial'){
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+      const dx = x - cx, dy = y - cy, r = Math.hypot(dx, dy) || 1;
+      const i = (y*W+x)*2;
+      flow[i] = dx/r; flow[i+1] = dy/r;
+    }
+  } else if (kind === 'wave'){
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+      const i = (y*W+x)*2;
+      flow[i] = Math.sin(x / W * Math.PI * 4);
+      flow[i+1] = 0;
+    }
+  }
+  markDirty();
+}
+document.querySelectorAll('.gen').forEach(btn => {
+  btn.addEventListener('click', () => generate(btn.dataset.gen));
+});
+
+/* ---------- 导入纹理 / 导入流向 / 导出 ---------- */
+$('btnImport').addEventListener('click', () => $('fileInput').click());
+$('fileInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => {
+    try {
+      const iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
+      // 1:1 读取原图，避免 drawImage 缩放插值在透明边缘引入噪点
+      const src = document.createElement('canvas');
+      src.width = iw; src.height = ih;
+      const sctx = src.getContext('2d');
+      sctx.drawImage(img, 0, 0);
+      const sdata = sctx.getImageData(0, 0, iw, ih).data;
+      // 预乘 alpha 双线性重采样到 W×H，透明像素不污染边缘
+      for (let y = 0; y < H; y++){
+        const sy = (y + 0.5) * ih / H - 0.5;
+        let yy = Math.floor(sy); if (yy < 0) yy = 0;
+        const fy = sy - yy;
+        const yy1 = Math.min(ih - 1, yy + 1);
+        for (let x = 0; x < W; x++){
+          const sx = (x + 0.5) * iw / W - 0.5;
+          let xx = Math.floor(sx); if (xx < 0) xx = 0;
+          const fx = sx - xx;
+          const xx1 = Math.min(iw - 1, xx + 1);
+          const p00 = (yy*iw+xx)*4, p10 = (yy*iw+xx1)*4, p01 = (yy1*iw+xx)*4, p11 = (yy1*iw+xx1)*4;
+          const w00 = (1-fx)*(1-fy), w10 = fx*(1-fy), w01 = (1-fx)*fy, w11 = fx*fy;
+          const a00 = sdata[p00+3], a10 = sdata[p10+3], a01 = sdata[p01+3], a11 = sdata[p11+3];
+          const pr = sdata[p00]*a00*w00 + sdata[p10]*a10*w10 + sdata[p01]*a01*w01 + sdata[p11]*a11*w11;
+          const pg = sdata[p00+1]*a00*w00 + sdata[p10+1]*a10*w10 + sdata[p01+1]*a01*w01 + sdata[p11+1]*a11*w11;
+          const pb = sdata[p00+2]*a00*w00 + sdata[p10+2]*a10*w10 + sdata[p01+2]*a01*w01 + sdata[p11+2]*a11*w11;
+          const pa = a00*w00 + a10*w10 + a01*w01 + a11*w11;
+          const o = (y*W+x)*4;
+          if (pa < 1){
+            textureData[o] = 255; textureData[o+1] = 255; textureData[o+2] = 255; textureData[o+3] = 0;
+          } else {
+            textureData[o]   = pr / pa;
+            textureData[o+1] = pg / pa;
+            textureData[o+2] = pb / pa;
+            textureData[o+3] = pa;
+          }
+        }
+      }
+      markDirty();
+    } catch (err) {
+      console.error('导入纹理失败：', err);
+      alert('导入失败：无法读取该图片的像素数据。');
+    }
+    URL.revokeObjectURL(url);
+    e.target.value = '';
+  };
+  img.src = url;
+});
+
+$('btnImportFlow').addEventListener('click', () => $('fileInputFlow').click());
+$('fileInputFlow').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => {
+    try {
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const cctx = c.getContext('2d');
+      cctx.imageSmoothingEnabled = true;
+      cctx.drawImage(img, 0, 0, W, H);
+      const data = cctx.getImageData(0, 0, W, H).data;
+      pushUndo();
+      for (let i = 0, p = 0; i < W * H; i++, p += 4){
+        if (data[p+3] < 16){ flow[i*2] = 0; flow[i*2+1] = 0; continue; }
+        flow[i*2]   = data[p]   / 255 * 2 - 1;
+        flow[i*2+1] = data[p+1] / 255 * 2 - 1;
+      }
+      markDirty();
+    } catch (err) {
+      console.error('导入流向图失败：', err);
+      alert('导入失败：无法读取该图片的像素数据。');
+    }
+    URL.revokeObjectURL(url);
+    e.target.value = '';
+  };
+  img.src = url;
+});
+
+function exportMap(mode){
+  const flipX = $('flipX').checked ? -1 : 1;
+  const flipY = $('flipY').checked ? -1 : 1;
+  const ueFlip = $('ueFlip').checked ? -1 : 1;   // UE 适配：反转流向（R/G 同时取反）
+  const EX = parseInt($('exportSize').value, 10);   // 导出尺寸，独立于编辑分辨率
+  const c = document.createElement('canvas');
+  c.width = EX; c.height = EX;
+  const cctx = c.getContext('2d');
+  const id = cctx.createImageData(EX, EX);
+  const d = id.data;
+  // 从编辑分辨率 W×H 双线性重采样到 EX×EX
+  for (let ey = 0; ey < EX; ey++){
+    const gy = (ey + 0.5) * H / EX;
+    for (let ex = 0; ex < EX; ex++){
+      const gx = (ex + 0.5) * W / EX;
+      const fl = sampleFlow(gx, gy);
+      const mw = maskWeight(gx, gy);
+      const p = (ey * EX + ex) * 4;
+      const fx = fl[0] * mw * flipX * ueFlip;   // 遮罩 + 翻转 + UE 适配后的流向 X
+      const fy = fl[1] * mw * flipY * ueFlip;   // 流向 Y
+      d[p]   = Math.round((fx * 0.5 + 0.5) * 255);
+      d[p+1] = Math.round((fy * 0.5 + 0.5) * 255);
+      if (mode === 'normal'){
+        // 法线贴图：B = 法线 Z 分量 = sqrt(1 - x² - y²)，静止=255 蓝，流向倾斜时略降
+        const len2 = Math.min(fx * fx + fy * fy, 1);
+        d[p+2] = Math.round((Math.sqrt(1 - len2) * 0.5 + 0.5) * 255);
+      } else {
+        d[p+2] = 128;   // 流向图：B 固定 128（中性灰）
+      }
+      d[p+3] = 255;
+    }
+  }
+  cctx.putImageData(id, 0, 0);
+  c.toBlob((blob) => {
+    const a = document.createElement('a');
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    a.href = URL.createObjectURL(blob);
+    a.download = mode === 'normal'
+      ? `normalmap_${EX}x${EX}_${ts}_N.png`
+      : `flowmap_${EX}x${EX}_${ts}_N.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }, 'image/png');
+}
+
+$('btnExport').addEventListener('click', () => exportMap('flow'));
+$('btnExportNormal').addEventListener('click', () => exportMap('normal'));
+
+/* ---------- 工具栏绑定 ---------- */
+$('resolution').addEventListener('change', (e) => applyResolution(parseInt(e.target.value)));
+$('tilePreviewToggle').addEventListener('change', () => {
+  tileMode = $('tilePreviewToggle').checked;
+  syncCanvasSize();
+  fitToScreen();
+  if (cursorVisible) drawBrushCursor(cursorX, cursorY);
+  markDirty();
+});
+
+function setView(m){
+  viewMode = m;
+  $('btnViewFlow').classList.toggle('active', m === 'flow');
+  $('btnViewMap').classList.toggle('active', m === 'map');
+  $('btnViewNormal').classList.toggle('active', m === 'normal');
+  markDirty();
+}
+$('btnViewFlow').addEventListener('click', () => setView('flow'));
+$('btnViewMap').addEventListener('click', () => setView('map'));
+$('btnViewNormal').addEventListener('click', () => setView('normal'));
+
+const toolButtons = {
+  paint: $('toolPaint'), flatten: $('toolFlatten'), smooth: $('toolSmooth')
+};
+const toolNames = { paint: '绘制', flatten: '橡皮擦', smooth: '平滑' };
+document.querySelectorAll('[data-tool]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    tool = btn.dataset.tool;
+    Object.entries(toolButtons).forEach(([k, b]) => b.classList.toggle('active', k === tool));
+    $('footTool').textContent = toolNames[tool];
+  });
+});
+
+// 滑块 + 数值输入框 双向绑定：拖动滑块改数值，也可直接输入数值
+function bindNumSlider(rangeId, numId, apply){
+  const range = $(rangeId), num = $(numId);
+  const clean = (v) => (Math.round(v * 1e6) / 1e6).toString();
+  const clamp = (v) => Math.min(parseFloat(range.max), Math.max(parseFloat(range.min), v));
+  range.addEventListener('input', () => {
+    num.value = clean(parseFloat(range.value));
+    apply(parseFloat(range.value));
+  });
+  num.addEventListener('input', () => {
+    let v = parseFloat(num.value);
+    if (Number.isNaN(v)) return;
+    range.value = clamp(v);
+    apply(clamp(v));
+  });
+  num.addEventListener('change', () => {
+    let v = parseFloat(num.value);
+    if (Number.isNaN(v)) v = parseFloat(range.min);
+    v = clamp(v);
+    range.value = v;
+    num.value = clean(v);
+    apply(v);
+  });
+}
+
+bindNumSlider('brushSize', 'brushSizeNum', (v) => {
+  brush.size = v;
+  if (cursorVisible) drawBrushCursor(cursorX, cursorY);
+});
+bindNumSlider('brushStrength', 'brushStrengthNum', (v) => {
+  brush.strength = v;
+  if (cursorVisible) drawBrushCursor(cursorX, cursorY);
+});
+bindNumSlider('flowSpeed', 'flowSpeedNum', (v) => { flowSpeed = v; });
+bindNumSlider('flowDistortion', 'flowDistortionNum', (v) => { flowDistortion = v; });
+$('reverseFlow').addEventListener('change', () => { reverseFlow = $('reverseFlow').checked; });
+
+/* ---------- 遮罩 ---------- */
+function maskChanged(){ drawMaskOverlay(); markDirty(); }
+function setMaskType(t){
+  mask.type = t;
+  document.querySelectorAll('.mask-type').forEach(b => b.classList.toggle('active', b.dataset.mask === t));
+  $('maskParams').style.display = (t === 'none') ? 'none' : 'block';
+  $('maskWRow').style.display = (t === 'rect') ? 'flex' : 'none';
+  $('maskHRow').style.display = (t === 'rect') ? 'flex' : 'none';
+  $('maskRectFeatherRow').style.display = (t === 'rect') ? 'flex' : 'none';
+  $('maskRRow').style.display = (t === 'ring') ? 'flex' : 'none';
+  $('maskOuterFeatherRow').style.display = (t === 'ring') ? 'flex' : 'none';
+  $('maskInnerRow').style.display = (t === 'ring') ? 'flex' : 'none';
+  $('maskInnerFeatherRow').style.display = (t === 'ring') ? 'flex' : 'none';
+  maskChanged();
+}
+document.querySelectorAll('.mask-type').forEach(b => {
+  b.addEventListener('click', () => setMaskType(b.dataset.mask));
+});
+bindNumSlider('maskCx', 'maskCxNum', v => { mask.cx = v; maskChanged(); });
+bindNumSlider('maskCy', 'maskCyNum', v => { mask.cy = v; maskChanged(); });
+bindNumSlider('maskW', 'maskWNum', v => { mask.w = v; maskChanged(); });
+bindNumSlider('maskH', 'maskHNum', v => { mask.h = v; maskChanged(); });
+bindNumSlider('maskR', 'maskRNum', v => { mask.r = v; maskChanged(); });
+bindNumSlider('maskOuterFeather', 'maskOuterFeatherNum', v => { mask.outerFeather = v; maskChanged(); });
+bindNumSlider('maskInner', 'maskInnerNum', v => { mask.inner = v; maskChanged(); });
+bindNumSlider('maskInnerFeather', 'maskInnerFeatherNum', v => { mask.innerFeather = v; maskChanged(); });
+bindNumSlider('maskFeather', 'maskFeatherNum', v => { mask.feather = v; maskChanged(); });
+$('maskHiddenToggle').addEventListener('change', () => {
+  maskHidden = $('maskHiddenToggle').checked;
+  drawMaskOverlay();
+});
+
+/* ---------- 启动 ---------- */
+syncCanvasSize();
+initFlowRender();
+fitToScreen();
+requestAnimationFrame(loop);
+window.addEventListener('load', () => { if (fitMode) fitToScreen(); });
+$('footTool').textContent = '绘制';
+</script>
+</body>
+</html>
