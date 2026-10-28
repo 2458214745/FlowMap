@@ -688,27 +688,52 @@ function renderNormalView(){
   }
 }
 
-/* ---------- 笔刷光标预览（大小 + 衰减范围） ---------- */
+/* ---------- 笔刷光标预览（大小 + 衰减范围，填充颜色随强度） ---------- */
 function drawBrushCursor(x, y){
   octx.clearRect(0, 0, brushOverlay.width, brushOverlay.height);
   const r = brush.size / 2;
   if (r < 1) return;
-  const g = octx.createRadialGradient(x, y, 0, x, y, r);
-  g.addColorStop(0, 'rgba(255,255,255,0.30)');
-  g.addColorStop(0.6, 'rgba(255,255,255,0.12)');
-  g.addColorStop(1, 'rgba(255,255,255,0.0)');
-  octx.fillStyle = g;
+  const s = Math.max(0, Math.min(1, brush.strength));   // 强度 0~1
+  // 蓝色填充：无羽化（均匀实心），透明度 = 强度/2*100%（强度1 → 50%）
+  const a = s * 0.5;
+  octx.fillStyle = 'rgba(59,130,246,' + a.toFixed(3) + ')';
   octx.beginPath(); octx.arc(x, y, r, 0, Math.PI*2); octx.fill();
-  octx.strokeStyle = 'rgba(255,255,255,0.45)';
-  octx.lineWidth = 1;
+  // 白色圆环：Alt 按住时高亮（更实更亮），否则固定 50%
+  const ringA = altHeld ? 0.95 : 0.5;
+  octx.strokeStyle = 'rgba(255,255,255,' + ringA.toFixed(3) + ')';
+  octx.lineWidth = altHeld ? 1.5 : 1;
   octx.setLineDash([3,3]);
   octx.beginPath(); octx.arc(x, y, r * 0.541, 0, Math.PI*2); octx.stroke();
   octx.setLineDash([]);
-  octx.strokeStyle = 'rgba(255,255,255,0.95)';
-  octx.lineWidth = 1.2;
+  octx.strokeStyle = 'rgba(255,255,255,' + ringA.toFixed(3) + ')';
+  octx.lineWidth = altHeld ? 1.8 : 1.2;
   octx.beginPath(); octx.arc(x, y, r, 0, Math.PI*2); octx.stroke();
-  octx.fillStyle = 'rgba(255,255,255,0.95)';
-  octx.beginPath(); octx.arc(x, y, 1.5, 0, Math.PI*2); octx.fill();
+  // Alt 调节模式：绘制上下左右四个方向箭头，滑动方向高亮
+  if (altHeld){
+    const gap = Math.max(10, r * 0.35);            // 箭头到圆环的距离
+    const size = Math.max(7, r * 0.18);            // 箭头大小（随笔刷缩放）
+    const dim = 'rgba(255,255,255,0.40)';          // 未高亮箭头
+    const hot = 'rgba(255,255,255,0.95)';          // 高亮箭头
+    const arrows = [
+      { dir:'up',    px:x,           py:y - r - gap, color: altDir==='up'    ? hot : dim },
+      { dir:'down',  px:x,           py:y + r + gap, color: altDir==='down'  ? hot : dim },
+      { dir:'left',  px:x - r - gap, py:y,           color: altDir==='left'  ? hot : dim },
+      { dir:'right', px:x + r + gap, py:y,           color: altDir==='right' ? hot : dim },
+    ];
+    for (const a of arrows) drawArrowCursor(a.dir, a.px, a.py, a.color === hot ? size * 1.35 : size, a.color);
+  }
+}
+/* 绘制单个三角方向箭头 */
+function drawArrowCursor(dir, x, y, size, color){
+  octx.fillStyle = color;
+  octx.beginPath();
+  const s = size, w = size * 0.72;
+  if (dir === 'up'){ octx.moveTo(x, y - s); octx.lineTo(x - w, y + s*0.55); octx.lineTo(x + w, y + s*0.55); }
+  else if (dir === 'down'){ octx.moveTo(x, y + s); octx.lineTo(x - w, y - s*0.55); octx.lineTo(x + w, y - s*0.55); }
+  else if (dir === 'left'){ octx.moveTo(x - s, y); octx.lineTo(x + s*0.55, y - w); octx.lineTo(x + s*0.55, y + w); }
+  else { octx.moveTo(x + s, y); octx.lineTo(x - s*0.55, y - w); octx.lineTo(x - s*0.55, y + w); }
+  octx.closePath();
+  octx.fill();
 }
 function clearBrushCursor(){
   octx.clearRect(0, 0, brushOverlay.width, brushOverlay.height);
@@ -828,6 +853,12 @@ function smoothStamp(cx, cy){
 /* ---------- 编辑画布指针事件（方向跟随拖动） ---------- */
 let drawing = false;
 let lastX = 0, lastY = 0;
+let strokeMode = 'paint';       // 当前笔画模式：paint / flatten / smooth
+let altHeld = false;            // Alt 按住进入调节模式（左右=笔刷大小，上下=笔刷强度）
+let altInit = false, altLastX = 0, altLastY = 0;
+let altStartX = 0, altStartY = 0, altAxis = null;   // 主轴锁定：'x' 调大小 / 'y' 调强度 / null 未锁定
+let altDir = null;               // 当前滑动方向：'left'/'right'/'up'/'down'（用于箭头高亮）
+let ctrlHeld = false, shiftHeld = false;            // 修饰键按住状态（用于工具高亮）
 
 function canvasPos(e){
   const rect = editor.getBoundingClientRect();
@@ -847,27 +878,46 @@ function canvasPosRaw(e){
 }
 
 function applyStamp(x, y, fx, fy){
-  if (tool === 'paint') stamp(x, y, fx, fy);
-  else if (tool === 'flatten') stamp(x, y, 0, 0);
-  else if (tool === 'smooth') smoothStamp(x, y);
+  if (strokeMode === 'flatten') stamp(x, y, 0, 0);
+  else if (strokeMode === 'smooth') smoothStamp(x, y);
+  else stamp(x, y, fx, fy);
+}
+
+function setBrushSize(v){
+  brush.size = Math.max(2, Math.min(256, Math.round(v)));
+  $('brushSize').value = brush.size;
+  $('brushSizeNum').value = brush.size;
+  if (cursorVisible) drawBrushCursor(cursorX, cursorY);
+}
+function setBrushStrength(v){
+  brush.strength = Math.max(0.01, Math.min(1, v));
+  $('brushStrength').value = brush.strength;
+  $('brushStrengthNum').value = (Math.round(brush.strength * 1e6) / 1e6).toString();
+  if (cursorVisible) drawBrushCursor(cursorX, cursorY);
 }
 
 function startStroke(e){
   if (e.button !== 0 || spaceHeld) return;
   e.preventDefault();
   editor.setPointerCapture(e.pointerId);
-  const [x, y] = canvasPos(e);
-  pushUndo();
+  // 用未 wrap 的连续坐标，stamp/smoothStamp 内部处理平铺 wrap，避免跨边界跳变产生直线
+  const [x, y] = canvasPosRaw(e);
+  if (e.ctrlKey) strokeMode = 'flatten';       // Ctrl+左键 = 橡皮擦
+  else if (e.shiftKey) strokeMode = 'smooth';  // Shift+左键 = 平滑
+  else strokeMode = tool;
   drawing = true;
   lastX = x; lastY = y;
+  cursorVisible = true; cursorX = x; cursorY = y;
+  pushUndo();
   // 单点：用上一次方向
   applyStamp(x, y, lastDirX, lastDirY);
   markDirty();
+  drawBrushCursor(x, y);
 }
 
 function moveStroke(e){
   if (!drawing) return;
-  const [x, y] = canvasPos(e);
+  const [x, y] = canvasPosRaw(e);
   const dx = x - lastX, dy = y - lastY;
   const dist = Math.hypot(dx, dy);
   if (dist < 0.4) return;
@@ -882,6 +932,8 @@ function moveStroke(e){
   }
   lastX = x; lastY = y;
   markDirty();
+  cursorX = x; cursorY = y;
+  drawBrushCursor(x, y);
 }
 
 function endStroke(){
@@ -896,14 +948,65 @@ editor.addEventListener('pointerup', endStroke);
 editor.addEventListener('pointercancel', endStroke);
 editor.addEventListener('pointerleave', () => { if (drawing) endStroke(); });
 
-/* 笔刷光标跟随 */
+/* 笔刷光标跟随 + Alt 按住调节（左右=大小，上下=强度，带主轴锁定防抖） */
 editor.addEventListener('pointermove', (e) => {
-  if (drawing){ if (cursorVisible){ clearBrushCursor(); cursorVisible = false; } return; }
+  if (altHeld && !drawing){
+    if (altInit){
+      const dx = e.clientX - altLastX;
+      const dy = e.clientY - altLastY;
+      // 主轴锁定：累计位移超过阈值后锁定主轴，之后只响应主轴的移动
+      if (altAxis === null){
+        const adx = Math.abs(e.clientX - altStartX);
+        const ady = Math.abs(e.clientY - altStartY);
+        if (Math.max(adx, ady) > 4) altAxis = adx >= ady ? 'x' : 'y';
+      }
+      if (altAxis === 'x'){
+        if (dx !== 0){ setBrushSize(brush.size + dx * 2); altDir = dx > 0 ? 'right' : 'left'; }
+      } else if (altAxis === 'y'){
+        if (dy !== 0){ setBrushStrength(brush.strength - dy * 0.005); altDir = dy < 0 ? 'up' : 'down'; }
+      }
+    } else {
+      altStartX = e.clientX; altStartY = e.clientY;
+    }
+    altLastX = e.clientX; altLastY = e.clientY;
+    altInit = true;
+  }
   const [x, y] = canvasPosRaw(e);
   cursorVisible = true; cursorX = x; cursorY = y;
   drawBrushCursor(x, y);
 });
 editor.addEventListener('pointerleave', () => { clearBrushCursor(); cursorVisible = false; });
+
+/* 修饰键：Alt 调节模式 + Ctrl/Shift 临时工具高亮 */
+function refreshTempHighlight(){
+  let t = null;
+  if (ctrlHeld) t = 'flatten';         // Ctrl → 橡皮擦
+  else if (shiftHeld) t = 'smooth';    // Shift → 平滑
+  const active = t || tool;
+  Object.entries(toolButtons).forEach(([k, b]) => b.classList.toggle('active', k === active));
+  $('footTool').textContent = toolNames[active];
+}
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Alt' && !e.repeat){
+    altHeld = true; altInit = false; altAxis = null; altDir = null;
+    if (cursorVisible) drawBrushCursor(cursorX, cursorY);   // 笔刷框高亮
+    e.preventDefault();
+  }
+  if (e.key === 'Control' && !e.repeat){ ctrlHeld = true; refreshTempHighlight(); }
+  if (e.key === 'Shift' && !e.repeat){ shiftHeld = true; refreshTempHighlight(); }
+});
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'Alt'){
+    altHeld = false; altInit = false; altAxis = null; altDir = null;
+    if (cursorVisible) drawBrushCursor(cursorX, cursorY);   // 恢复普通笔刷框
+  }
+  if (e.key === 'Control'){ ctrlHeld = false; refreshTempHighlight(); }
+  if (e.key === 'Shift'){ shiftHeld = false; refreshTempHighlight(); }
+});
+window.addEventListener('blur', () => {
+  altHeld = false; altInit = false; altAxis = null; altDir = null;
+  ctrlHeld = false; shiftHeld = false; refreshTempHighlight();
+});
 
 /* 滚轮缩放（以鼠标位置为锚点） */
 wrap.addEventListener('wheel', (e) => {
