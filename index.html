@@ -349,36 +349,51 @@ function initFlowRender(){
   flowImageData = flowCtx.createImageData(renderW, renderH);
 }
 
-/* ---------- 默认纹理：程序生成的蓝天白云（未导入时的占位） ---------- */
-function cloudBlob(x, y, cx, cy, r){
-  const dx = x - cx, dy = y - cy;
-  const d2 = dx*dx + dy*dy;
-  const r2 = r * r;
-  if (d2 > r2 * 3.5) return 0;
-  return Math.exp(-d2 / r2);
+/* ---------- 默认纹理：程序生成的 Voronoi 细胞焦散（蓝绿相间、低饱和，未导入时的占位） ---------- */
+function hash2(ix, iy, seed){
+  let h = Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263) ^ Math.imul(seed, 1440662683);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967295;              // 0~1 均匀伪随机
 }
 
 function makeDefaultTexture(){
   const d = textureData;
+  const cell = W / 12;                 // 细胞尺寸：横向约 12 个（更密集，接近焦散网）
+  const seed = 20261029;               // 固定种子，保证每次生成一致
+  const BLUE = [30, 165, 215];         // 深青蓝（细胞内部基底，对应水面焦散的暗部）
+  const CYAN = [55, 200, 210];         // 青/浅蓝绿（相邻细胞交替，蓝青相间但不艳丽）
   for (let y = 0; y < H; y++){
-    const t = y / H;
     for (let x = 0; x < W; x++){
-      const p = (y * W + x) * 4;
-      let r = 105 + t * 95;
-      let g = 165 + t * 60;
-      let b = 230 - t * 40;
-      let cloud = cloudBlob(x, y, 0.28*W, 0.30*H, 0.09*W);
-      cloud = Math.max(cloud, cloudBlob(x, y, 0.34*W, 0.26*H, 0.06*W));
-      cloud = Math.max(cloud, cloudBlob(x, y, 0.68*W, 0.22*H, 0.11*W));
-      cloud = Math.max(cloud, cloudBlob(x, y, 0.52*W, 0.55*H, 0.14*W));
-      cloud = Math.max(cloud, cloudBlob(x, y, 0.82*W, 0.60*H, 0.09*W));
-      cloud = Math.max(cloud, cloudBlob(x, y, 0.15*W, 0.72*H, 0.12*W));
-      if (cloud > 0){
-        const a = Math.min(1, cloud) * 0.95;
-        r += (255 - r) * a;
-        g += (255 - g) * a;
-        b += (255 - b) * a;
+      const wx = x / cell, wy = y / cell;
+      const ix = Math.floor(wx), iy = Math.floor(wy);
+      const fx = wx - ix, fy = wy - iy;
+      let f1 = Infinity, f2 = Infinity, hue = 0;
+      for (let gy = -1; gy <= 1; gy++){
+        for (let gx = -1; gx <= 1; gx++){
+          const cx = ix + gx, cy = iy + gy;
+          const h1 = hash2(cx, cy, seed);
+          const h2 = hash2(cx, cy, seed + 1);
+          const h3 = hash2(cx, cy, seed + 2);
+          const dx = gx + h1 - fx, dy = gy + h2 - fy;   // 到该细胞特征点的距离
+          const dd = dx * dx + dy * dy;
+          if (dd < f1){ f2 = f1; f1 = dd; hue = h3; }    // 最近点 + 该细胞色调
+          else if (dd < f2){ f2 = dd; }                  // 第二近点
+        }
       }
+      // F2-F1：细胞边界处=0（细亮线），向细胞内部增大（暗）—— 水面焦散的正确基元
+      const dist = Math.sqrt(f2) - Math.sqrt(f1);
+      const t = Math.max(0, 1 - dist / 0.14);      // 0(内部) ~ 1(边界亮线窄带)
+      const glow = t * t * t;                       // 高次幂让亮线收窄成发丝线
+      // 蓝→青 低饱和插值（hue 0蓝 ~ 1青，相邻细胞蓝青相间）
+      let r = BLUE[0] + (CYAN[0] - BLUE[0]) * hue;
+      let g = BLUE[1] + (CYAN[1] - BLUE[1]) * hue;
+      let b = BLUE[2] + (CYAN[2] - BLUE[2]) * hue;
+      // 焦散亮线：向冷白高光混合（细胞内部中亮，亮线近白）
+      r += (250 - r) * glow;
+      g += (253 - g) * glow;
+      b += (255 - b) * glow;
+      const p = (y * W + x) * 4;
       d[p] = r; d[p+1] = g; d[p+2] = b; d[p+3] = 255;
     }
   }
